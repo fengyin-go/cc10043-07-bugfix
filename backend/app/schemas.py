@@ -29,3 +29,23 @@ class EntryPayload(BaseModel):
 class ActionPayload(BaseModel):
     action: str
     remark: str | None = None
+
+
+class CompressPayload(BaseModel):
+    """批量压缩入参：可按批次筛选，并可用 limit/stop_after 模拟中途中断。"""
+    batch: str | None = None
+    batch_name: str | None = None
+    采集批次: str | None = None
+    limit: int | None = Field(default=None, ge=0)
+    stop_after: int | None = Field(default=None, ge=0)
+
+    def resolved_batch(self) -> str | None:
+        for value in (self.batch, self.batch_name, self.采集批次):
+            if value:
+                return value
+        return None
+
+
+class ReplayStartPayload(BaseModel):
+    """回放入参：limit 限制本次逐条交付的记录数。"""
+    limit: int | None = Field(default=None, ge=0)

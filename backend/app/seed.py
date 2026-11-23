@@ -545,3 +545,71 @@ SEED_ROWS: dict[str, list[dict[str, Any]]] = {
   '连续超时阈值': '吞吐量告警样例3',
   '通知方式': '吞吐量告警样例3'}]
 }
+
+
+# ---- 载荷工作台验证批次 ----
+# 批次 A 用于验证压缩—中断—回放—重试压缩全链路：
+# 100 条 "x"*100 + "TAIL" 的长载荷、1 条短原文、1 条旧压缩截断记录。
+_WORKBENCH_BATCH = "A"
+_WORKBENCH_LONG_PAYLOAD = "x" * 100 + "TAIL"
+_WORKBENCH_SHORT_PAYLOAD = "short-payload-短原文"
+
+
+def _build_payload_workbench_rows() -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    next_id = max((int(r.get("id", 0)) for r in SEED_ROWS["payload_store"]), default=0) + 1
+    for index in range(1, 101):
+        rows.append({
+            "id": next_id,
+            "status": "已存储",
+            "pending": True,
+            "abnormal": False,
+            "采集批次": _WORKBENCH_BATCH,
+            "消息ID": f"A-{index:03d}",
+            "原始载荷": _WORKBENCH_LONG_PAYLOAD,
+            "存储时间": "2026-11-20T10:00:00+00:00",
+            "压缩后大小": str(len(_WORKBENCH_LONG_PAYLOAD)),
+        })
+        next_id += 1
+    rows.append({
+        "id": next_id,
+        "status": "已存储",
+        "pending": True,
+        "abnormal": False,
+        "采集批次": _WORKBENCH_BATCH,
+        "消息ID": "A-101-short",
+        "原始载荷": _WORKBENCH_SHORT_PAYLOAD,
+        "存储时间": "2026-11-20T10:00:01+00:00",
+        "压缩后大小": str(len(_WORKBENCH_SHORT_PAYLOAD)),
+    })
+    next_id += 1
+    rows.append({
+        "id": next_id,
+        "status": "已压缩",
+        "pending": False,
+        "abnormal": True,
+        "采集批次": _WORKBENCH_BATCH,
+        "消息ID": "A-legacy-truncated",
+        "原始载荷": _WORKBENCH_LONG_PAYLOAD[:100] + "...[compressed]",
+        "存储时间": "2026-11-19T09:00:00+00:00",
+        "压缩后大小": "113",
+        "载荷编码": "旧压缩（截断）",
+        "可还原": False,
+        "不可还原原因": "旧压缩格式已截断，尾字段丢失，无法还原全部字节",
+    })
+    return rows
+
+
+SEED_ROWS["payload_store"].extend(_build_payload_workbench_rows())
+
+SEED_ROWS["batch_replay"].append({
+    "id": max(int(r.get("id", 0)) for r in SEED_ROWS["batch_replay"]) + 1,
+    "status": "待回放",
+    "pending": True,
+    "abnormal": False,
+    "回放范围": "批次A全量",
+    "开始时间": "2026-11-19T00:00:00+00:00",
+    "结束时间": "2026-11-21T00:00:00+00:00",
+    "目标Topic": _WORKBENCH_BATCH,
+    "回放速率": "100",
+})

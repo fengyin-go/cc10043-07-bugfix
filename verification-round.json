@@ -1,6 +1,6 @@
 {
-  "round": 1,
-  "timestamp": "2026-11-21T22:27:00+08:00",
+  "round": 2,
+  "timestamp": "2026-11-23T06:20:00+08:00",
   "base_commit": "b047a120ea0a0b35c2a57ae804a66efd676b4c8d",
   "tests": [
     {
@@ -8,23 +8,35 @@
       "command": "python3 -m compileall backend/",
       "exit_code": 0,
       "result": "passed",
-      "detail": "所有27个Python文件编译成功，无语法错误"
-    },
-    {
-      "name": "frontend-npm-install",
-      "command": "npm install",
-      "exit_code": 0,
-      "result": "passed",
-      "detail": "51 packages added, 0 errors"
+      "detail": "后端全部Python文件编译成功，无语法错误"
     },
     {
       "name": "frontend-typecheck",
-      "command": "npx vue-tsc --noEmit",
+      "command": "cd frontend && npx vue-tsc --noEmit",
       "exit_code": 0,
       "result": "passed",
       "detail": "TypeScript类型检查通过，无类型错误"
+    },
+    {
+      "name": "payload-replay-regression",
+      "command": "backend/.venv/bin/python -m unittest discover -s tests -v",
+      "exit_code": 0,
+      "result": "passed",
+      "detail": "4个用例覆盖：中断压缩后混合版本回放、重试压缩无损且幂等、旧截断只登记失败、压缩记录关联源消息。"
+    },
+    {
+      "name": "http-end-to-end",
+      "command": "uvicorn + curl /api/payload_store/compress, /api/batch_replay/{id}/start, /api/batch_replay/{id}/delivery",
+      "exit_code": 0,
+      "result": "passed",
+      "detail": "批次A先limit=40中断压缩，回放逐条交付101条(40条zlib+b64、61条原文)、1条旧截断失败；重试压缩成功61条、跳过40条、失败1条；再次回放101条全部无损，失败明细保留且隔离区不重复登记。"
     }
   ],
   "overall": "passed",
-  "fixes_applied": []
+  "fixes_applied": [
+    "payload_store: 批量压缩改为zlib+base64无损编码，压缩记录写入载荷编码/载荷ID/源消息ID，旧截断内容只登记失败不再冒充已压缩",
+    "batch_replay: 回放逐条按记录版本解码，返回实际交付与失败明细，无法还原的旧截断消息单列失败并送入失败隔离区",
+    "routers/schemas: 新增 /api/payload_store/compress、/api/payload_store/{id}/restore、/api/batch_replay/{id}/start、/api/batch_replay/{id}/delivery",
+    "seed: 增加批次A验证数据（100条 x100+TAIL 长载荷、1条短原文、1条旧截断）与对应回放任务"
+  ]
 }

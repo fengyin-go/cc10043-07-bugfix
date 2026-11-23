@@ -8,7 +8,14 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 
-from app.schemas import ActionPayload, ActionResult, EntryPayload, PageResult
+from app.schemas import (
+    ActionPayload,
+    ActionResult,
+    CompressPayload,
+    EntryPayload,
+    PageResult,
+    ReplayStartPayload,
+)
 from app.services import service_for
 
 router = APIRouter(prefix="/api", tags=["业务资源"])
@@ -19,6 +26,54 @@ def require_service(module: str):
     if service is None:
         raise HTTPException(status_code=404, detail=f"未知业务模块：{module}")
     return service
+
+
+# ---- 载荷压缩与回放交付：固定路径必须排在 /{module}/{entry_id} 之前 ----
+
+@router.post("/payload_store/compress", response_model=dict)
+def compress_payloads(payload: CompressPayload | None = None) -> dict[str, Any]:
+    """批量写入无损压缩数据；limit 用于模拟中途中断，只处理前 N 条。"""
+    service = require_service("payload_store")
+    body = payload or CompressPayload()
+    result = service.batch_compress_payloads(
+        body.resolved_batch(), limit=body.limit, stop_after=body.stop_after)
+    return result
+
+
+@router.post("/payload_store/{entry_id}/restore", response_model=dict)
+def restore_payload(entry_id: int) -> dict[str, Any]:
+    """还原单条载荷的完整原文，无法还原时返回失败原因。"""
+    service = require_service("payload_store")
+    entry = service.get_entry(entry_id)
+    if entry is None:
+        raise HTTPException(status_code=404, detail=f"原始载荷 {entry_id} 不存在或已归档")
+    return service.restore_payload(entry_id)
+
+
+@router.post("/batch_replay/{entry_id}/start", response_model=dict)
+def start_replay(
+    entry_id: int,
+    payload: ReplayStartPayload | None = None,
+    limit: int | None = Query(default=None),
+) -> dict[str, Any]:
+    """启动回放：逐条解码载荷并返回实际交付与失败明细。"""
+    service = require_service("batch_replay")
+    body = payload or ReplayStartPayload()
+    effective_limit = body.limit if body.limit is not None else limit
+    result = service.start_replay(entry_id, limit=effective_limit)
+    if not result.get("ok"):
+        raise HTTPException(status_code=404, detail=result.get("message", "回放任务不存在"))
+    return result
+
+
+@router.get("/batch_replay/{entry_id}/delivery", response_model=dict)
+def replay_delivery(entry_id: int) -> dict[str, Any]:
+    """查看回放任务最近一次逐条交付的结果。"""
+    service = require_service("batch_replay")
+    result = service.get_last_delivery(entry_id)
+    if not result.get("ok"):
+        raise HTTPException(status_code=404, detail=result.get("message", "回放任务不存在"))
+    return result
 
 
 @router.get("/{module}", response_model=PageResult[dict])
